@@ -1,44 +1,66 @@
-import requests
-from bs4 import BeautifulSoup
 import os
+import requests
 import zipfile
+from bs4 import BeautifulSoup
 
-# URL da página da ANS
-URL = "https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos"
-response = requests.get(URL)
-
-# Verifica se a requisição foi bem-sucedida
-if response.status_code == 200:
+def get_pdf_links(url):
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"Erro ao acessar a página: {e}")
+        return []
+    
     soup = BeautifulSoup(response.text, 'html.parser')
     pdf_links = []
-    
-    # Encontra todos os links na página
     for link in soup.find_all('a', href=True):
-        href = link['href']
-        if href.endswith('.pdf') and ('anexo-i' in href.lower() or 'anexo-ii' in href.lower()):
-            pdf_links.append(href if href.startswith('http') else f'https://www.gov.br{href}')
+        if "Anexo" in link.text and link['href'].endswith(".pdf"):
+            pdf_links.append(link['href'])
+    return pdf_links
 
+def download_pdfs(pdf_links, download_dir):
+    os.makedirs(download_dir, exist_ok=True)
+    downloaded_files = []
+    for pdf_url in pdf_links:
+        pdf_name = pdf_url.split("/")[-1]
+        pdf_path = os.path.join(download_dir, pdf_name)
+        try:
+            pdf_response = requests.get(pdf_url, timeout=10)
+            pdf_response.raise_for_status()
+            with open(pdf_path, "wb") as pdf_file:
+                pdf_file.write(pdf_response.content)
+            downloaded_files.append(pdf_path)
+            print(f"Baixado: {pdf_name}")
+        except requests.exceptions.RequestException as e:
+            print(f"Erro ao baixar {pdf_name}: {e}")
+    return downloaded_files
+
+def create_zip(files, zip_path):
+    if not files:
+        print("Nenhum arquivo para compactar.")
+        return
+    
+    with zipfile.ZipFile(zip_path, 'w') as zipf:
+        for file in files:
+            zipf.write(file, os.path.basename(file))
+    print(f"Arquivo ZIP criado em: {zip_path}")
+
+def main():
+    url = "https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos"
+    download_dir = "downloads"
+    zip_path = os.path.join(download_dir, "anexos.zip")
+    
+    print("Obtendo links dos PDFs...")
+    pdf_links = get_pdf_links(url)
     if not pdf_links:
-        print("Nenhum PDF encontrado.")
-    else:
-        # Criar pasta para armazenar os PDFs
-        os.makedirs("pdfs", exist_ok=True)
-        
-        for pdf_url in pdf_links:
-            pdf_name = pdf_url.split("/")[-1]
-            pdf_path = os.path.join("pdfs", pdf_name)
-            
-            print(f"Baixando: {pdf_name}")
-            pdf_response = requests.get(pdf_url)
-            with open(pdf_path, "wb") as f:
-                f.write(pdf_response.content)
-        
-        # Compactação dos PDFs
-        zip_filename = "anexos.zip"
-        with zipfile.ZipFile(zip_filename, "w") as zipf:
-            for file in os.listdir("pdfs"):
-                zipf.write(os.path.join("pdfs", file), arcname=file)
-        
-        print(f"Arquivos compactados em {zip_filename}")
-else:
-    print("Falha ao acessar a página.")
+        print("Nenhum link de PDF encontrado.")
+        return
+    
+    print("Baixando PDFs...")
+    downloaded_files = download_pdfs(pdf_links, download_dir)
+    
+    print("Criando arquivo ZIP...")
+    create_zip(downloaded_files, zip_path)
+    
+if __name__ == "__main__":
+    main()
