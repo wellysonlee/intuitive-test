@@ -1,6 +1,8 @@
 import os
 import requests
 import zipfile
+import tabula
+import pandas as pd
 from bs4 import BeautifulSoup
 
 def get_pdf_links(url):
@@ -45,6 +47,28 @@ def create_zip(files, zip_path):
             zipf.write(file, os.path.basename(file))
     print(f"Arquivo ZIP criado em: {zip_path}")
 
+def extract_table_from_pdf(pdf_path):
+    tables = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True)
+    if tables:
+        return tables[0]
+    return None
+
+def save_to_csv_and_zip(dataframe, csv_path, zip_path):
+    dataframe.to_csv(csv_path, index=False)
+    print(f"Arquivo CSV criado em: {csv_path}")
+
+    with zipfile.ZipFile(zip_path, 'w') as zipf:
+        zipf.write(csv_path, os.path.basename(csv_path))
+    print(f"Arquivo ZIP criado com o CSV em: {zip_path}")
+
+def replace_abbreviations(df):
+    abbreviations = {
+        'OD': 'Olho Direito',
+        'AMB': 'Ambulatório'
+    }
+    df.replace(abbreviations, inplace=True)
+    return df
+
 def main():
     url = "https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos"
     download_dir = "downloads"
@@ -59,7 +83,21 @@ def main():
     print("Baixando PDFs...")
     downloaded_files = download_pdfs(pdf_links, download_dir)
     
-    print("Criando arquivo ZIP...")
+    pdf_path = downloaded_files[0]
+    print("Extraindo dados da tabela do PDF...")
+    table = extract_table_from_pdf(pdf_path)
+    
+    if table is None:
+        print("Nenhuma tabela encontrada no PDF.")
+        return
+    
+    print("Substituindo abreviações e salvando em CSV...")
+    df = pd.DataFrame(table)
+    df = replace_abbreviations(df)
+    csv_path = os.path.join(download_dir, "rol_de_procedimentos.csv")
+    save_to_csv_and_zip(df, csv_path, os.path.join(download_dir, "Teste_Wellyson.zip"))
+
+    print("Criando arquivo ZIP com os PDFs...")
     create_zip(downloaded_files, zip_path)
     
 if __name__ == "__main__":
