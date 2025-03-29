@@ -37,6 +37,40 @@ def download_pdfs(pdf_links, download_dir):
             print(f"Erro ao baixar {pdf_name}: {e}")
     return downloaded_files
 
+def extract_table_from_pdf(pdf_path):
+    print("Extraindo dados da tabela do PDF...")
+    try:
+        tables = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True)
+        
+        all_tables = []
+        for table in tables:
+            all_tables.append(table)
+        
+        if all_tables:
+            combined_table = pd.concat(all_tables, ignore_index=True)
+            return combined_table
+        else:
+            print("Nenhuma tabela encontrada no PDF.")
+            return None
+    except Exception as e:
+        print(f"Erro ao extrair tabelas do PDF: {e}")
+        return None
+
+def replace_abbreviations(table):
+    print("Substituindo abreviações...")
+    table['OD'] = table['OD'].replace({
+        'OD': 'Odontológica',
+        'AMB': 'Ambulatorial'
+    })
+    return table
+
+def save_table_to_csv(table, csv_path):
+    if table is not None:
+        table.to_csv(csv_path, index=False, encoding='utf-8')
+        print(f"Arquivo CSV criado em: {csv_path}")
+    else:
+        print("Tabela vazia, não foi possível salvar o CSV.")
+
 def create_zip(files, zip_path):
     if not files:
         print("Nenhum arquivo para compactar.")
@@ -47,32 +81,12 @@ def create_zip(files, zip_path):
             zipf.write(file, os.path.basename(file))
     print(f"Arquivo ZIP criado em: {zip_path}")
 
-def extract_table_from_pdf(pdf_path):
-    tables = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True)
-    if tables:
-        return tables[0]
-    return None
-
-def save_to_csv_and_zip(dataframe, csv_path, zip_path):
-    dataframe.to_csv(csv_path, index=False)
-    print(f"Arquivo CSV criado em: {csv_path}")
-
-    with zipfile.ZipFile(zip_path, 'w') as zipf:
-        zipf.write(csv_path, os.path.basename(csv_path))
-    print(f"Arquivo ZIP criado com o CSV em: {zip_path}")
-
-def replace_abbreviations(df):
-    abbreviations = {
-        'OD': 'Olho Direito',
-        'AMB': 'Ambulatório'
-    }
-    df.replace(abbreviations, inplace=True)
-    return df
-
 def main():
     url = "https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos"
     download_dir = "downloads"
     zip_path = os.path.join(download_dir, "anexos.zip")
+    csv_path = os.path.join(download_dir, "rol_de_procedimentos.csv")
+    zip_csv_path = os.path.join(download_dir, "Teste_Wellyson.zip")
     
     print("Obtendo links dos PDFs...")
     pdf_links = get_pdf_links(url)
@@ -83,22 +97,24 @@ def main():
     print("Baixando PDFs...")
     downloaded_files = download_pdfs(pdf_links, download_dir)
     
-    pdf_path = downloaded_files[0]
     print("Extraindo dados da tabela do PDF...")
-    table = extract_table_from_pdf(pdf_path)
+    all_tables = []
+    for pdf_path in downloaded_files:
+        table = extract_table_from_pdf(pdf_path)
+        if table is not None:
+            all_tables.append(table)
     
-    if table is None:
-        print("Nenhuma tabela encontrada no PDF.")
-        return
+    if all_tables:
+        final_table = pd.concat(all_tables, ignore_index=True)
+        final_table = replace_abbreviations(final_table)
+        save_table_to_csv(final_table, csv_path)
+        
+        create_zip([csv_path], zip_csv_path)
+    else:
+        print("Nenhuma tabela foi extraída dos PDFs.")
     
-    print("Substituindo abreviações e salvando em CSV...")
-    df = pd.DataFrame(table)
-    df = replace_abbreviations(df)
-    csv_path = os.path.join(download_dir, "rol_de_procedimentos.csv")
-    save_to_csv_and_zip(df, csv_path, os.path.join(download_dir, "Teste_Wellyson.zip"))
-
     print("Criando arquivo ZIP com os PDFs...")
     create_zip(downloaded_files, zip_path)
-    
+
 if __name__ == "__main__":
     main()
